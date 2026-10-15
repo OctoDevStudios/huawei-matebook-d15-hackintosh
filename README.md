@@ -29,7 +29,7 @@ with **working internal audio and fingerprint reader** thanks to two custom driv
 | Trackpad (I2C), keyboard, brightness keys | ✅ | VoodooI2C, VoodooPS2, BrightnessKeys |
 | Battery, CPU power management | ✅ | SMCBatteryManager, CPUFriend |
 | iGPU acceleration (Metal 3) | ✅ | WhateverGreen |
-| HDMI | ❔ | not tested |
+| HDMI | ✅ | |
 | Fingerprint at the boot login window | ❌ | password required, like Touch ID after a restart |
 | AirDrop / Handoff | ❌ | needs a Broadcom Wi-Fi card |
 
