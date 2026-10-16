@@ -1,0 +1,36 @@
+--- a/itlwm/hal_iwx/ItlIwx.cpp	2026-10-14 19:15:03
++++ b/itlwm/hal_iwx/ItlIwx.cpp	2026-10-16 14:37:16
+@@ -3912,8 +3912,13 @@
+         if (is_5ghz && !data->sku_cap_band_52GHz_enable)
+             ch_flags &= ~IWX_NVM_CHANNEL_VALID;
+         
+-        if (ch_flags & IWX_NVM_CHANNEL_160MHZ)
+-            data->vht160_supported = true;
++        if (ch_flags & IWX_NVM_CHANNEL_160MHZ) {
++            int no160;
++            if (PE_parse_boot_argn("-itlwm_no160", &no160, sizeof(no160)))
++                ch_flags &= ~IWX_NVM_CHANNEL_160MHZ;
++            else
++                data->vht160_supported = true;
++        }
+ 
+         hw_value = nvm_channels[ch_idx];
+         channel = &ic->ic_channels[hw_value];
+--- a/itlwm/hal_iwm/mac80211.cpp	2026-10-14 19:15:03
++++ b/itlwm/hal_iwm/mac80211.cpp	2026-10-16 14:37:00
+@@ -227,8 +227,13 @@
+         if (!(ch_flags & IWM_NVM_CHANNEL_VALID))
+             continue;
+         
+-        if (ch_flags & IWM_NVM_CHANNEL_160MHZ)
+-            data->vht160_supported = true;
++        if (ch_flags & IWM_NVM_CHANNEL_160MHZ) {
++            int no160;
++            if (PE_parse_boot_argn("-itlwm_no160", &no160, sizeof(no160)))
++                ch_flags &= ~IWM_NVM_CHANNEL_160MHZ;
++            else
++                data->vht160_supported = true;
++        }
+         
+         hw_value = nvm_channels[ch_idx];
+         channel = &ic->ic_channels[hw_value];

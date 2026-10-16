@@ -1,0 +1,12 @@
+--- a/BrcmPatchRAM/BlueToolFixup.cpp	2026-10-16 14:21:03
++++ b/BrcmPatchRAM/BlueToolFixup.cpp	2026-10-16 14:21:03
+@@ -225,7 +225,8 @@
+         }
+         else if (strcmp(path + dirLength, "bluetoothd") == 0) {
+             searchAndPatch(data, PAGE_SIZE, path, kVendorCheckOriginal, kVendorCheckPatched);
+-            searchAndPatch(data, PAGE_SIZE, path, kBadChipsetCheckOriginal, kBadChipsetCheckPatched);
++            if (getKernelVersion() < KernelVersion::Sequoia)   // legacy (Monterey) pattern: false matches on Sequoia+/Tahoe
++                searchAndPatch(data, PAGE_SIZE, path, kBadChipsetCheckOriginal, kBadChipsetCheckPatched);
+             if (getKernelVersion() >= KernelVersion::Ventura && getKernelVersion() < KernelVersion::Sequoia)
+                 searchAndPatch(data, PAGE_SIZE, path, kBadChipsetCheckOriginal13_3, kBadChipsetCheckPatched13_3);
+             if (getKernelVersion() >= KernelVersion::Sequoia)
