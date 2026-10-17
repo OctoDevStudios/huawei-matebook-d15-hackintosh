@@ -20,6 +20,7 @@ Take the folder for your macOS and copy it to the EFI partition **renamed to `EF
 | SMBIOS | MacBookPro16,2 | MacBookAir9,1 |
 | Wi-Fi | AirportItlwm (Tahoe build, 80 MHz) | AirportItlwm 2.3.0 |
 | Backlight fix | `-igfxblr` | `-igfxblt` |
+| iGPU `device-id` | `9B3E0000` (UHD 630, GT2 like the UHD 620) | `A53E0000` |
 
 Machine: Huawei MateBook D15 2020, i5-10210U (Comet Lake), UHD 620, 1080p.
 **The serials in this repo are placeholders** — generate your own (see Install).
@@ -34,7 +35,7 @@ is the 13" MacBook Pro 2020 (Comet/Ice Lake class, Intel iGPU).
 | Internal speakers | ✅ | MateBookAudio kext + HAL plugin, calibrated EQ |
 | Headphones (hot-plug) | ✅ | *Headphones* shown in Sound settings |
 | Internal microphone | ✅ | |
-| Calls (FaceTime, Zoom…), echo cancellation | ✅ | MateBookAudio 1.1.0 |
+| Calls (FaceTime, Zoom…), echo cancellation, charging chime | ✅ | MateBookAudio 1.1.1 |
 | Headset microphone | ✅ | *External Microphone* shown when plugged in |
 | Fingerprint for `sudo` and the lock screen | ✅ | MateBookFP, needs its userspace part |
 | Sleep / wake, lid | ✅ | |
@@ -65,6 +66,23 @@ is the 13" MacBook Pro 2020 (Comet/Ice Lake class, Intel iGPU).
 
 A zip of each EFI is attached to the [releases](../../releases).
 
+## Tahoe: trackpad mode
+
+On Tahoe the trackpad can intermittently feel smoothed / late (Apple's multitouch processing; a USB
+mouse is not affected, and Sonoma with the same kexts is fine). `EFI-Tahoe` ships a patched
+VoodooInput with an optional mode that avoids it:
+
+| | Default | Instant cursor (`-vi_mouse`) |
+|---|---|---|
+| Cursor | Apple multitouch (may lag at times on Tahoe) | instant, same path as a mouse |
+| Click / right click (two fingers or corner) | ✅ | ✅ |
+| Two-finger scroll | ✅ with momentum | ✅ |
+| 3/4-finger gestures, pinch, Force Touch | ✅ | ❌ |
+| Speed setting | Trackpad | Mouse |
+
+To switch, add or remove `-vi_mouse` in `boot-args` and reboot. The release has a zip for each.
+Details and patch: [extras/patches](extras/patches/README.md#voodooinput--optional-instant-cursor-mode--vi_mouse).
+
 ## Tahoe notes
 
 - **Boot-args** (`EFI-Tahoe`): `-igfxblr` (Tahoe's framebuffer calls `WriteRegister32` again, the
@@ -72,7 +90,7 @@ A zip of each EFI is attached to the [releases](../../releases).
   `revpatch=cpuname,sbvmm`, `-lilubetaall -ibtcompatbeta` (Lilu plugins not yet flagged for Tahoe).
 - **Bluetooth:** since Sequoia, `-btlfxnvramcheck` no longer works; the NVRAM variables
   `bluetoothExternalDongleFailed` and `bluetoothInternalControllerInfo` are set in `NVRAM > Add`.
-- **Modified kexts** (AirportItlwm `-itlwm_no160`, BlueToolFixup, IntelBTPatcher 2.5.0): sources of
+- **Modified kexts** (AirportItlwm `-itlwm_no160`, BlueToolFixup, IntelBTPatcher 2.5.0, VoodooInput `-vi_mouse`): sources of
   the changes and why in [extras/patches](extras/patches).
 - No OpenCore picker (like a real Mac): hold **Option/Alt** at boot to show it.
 

@@ -1,0 +1,150 @@
+diff -ruN -x * clean/VoodooInput-1.1.6/VoodooInput/VoodooInput.cpp VoodooInput-1.1.6/VoodooInput/VoodooInput.cpp
+--- VoodooInput/VoodooInput.cpp	2024-09-04 10:18:14
++++ VoodooInput/VoodooInput.cpp	2026-10-17 12:32:48
+@@ -7,6 +7,7 @@
+ //
+ 
+ #include "VoodooInput.hpp"
++#include <pexpert/pexpert.h>
+ #include "VoodooInputIDs.hpp"
+ #include "VoodooInputMultitouch/VoodooInputMessages.h"
+ #include "VoodooInputSimulator/VoodooInputActuatorDevice.hpp"
+@@ -31,6 +32,7 @@
+         return false;
+     }
+ 
++    { char b[8]; mouseMode = PE_parse_boot_argn("-vi_mouse", b, sizeof(b)); }
+     // Allocate the simulator and actuator devices
+     simulator = OSTypeAlloc(VoodooInputSimulatorDevice);
+     actuator = OSTypeAlloc(VoodooInputActuatorDevice);
+@@ -164,8 +166,12 @@
+ IOReturn VoodooInput::message(UInt32 type, IOService *provider, void *argument) {
+     switch (type) {
+         case kIOMessageVoodooInputMessage:
+-            if (provider == parentProvider && argument && simulator)
+-                simulator->constructReport(*(VoodooInputEvent*)argument);
++            if (provider == parentProvider && argument) {
++                if (mouseMode && trackpoint)
++                    handleMouseMode(*(VoodooInputEvent*)argument);
++                else if (simulator)
++                    simulator->constructReport(*(VoodooInputEvent*)argument);
++            }
+             break;
+             
+         case kIOMessageVoodooInputUpdateDimensionsMessage:
+@@ -215,4 +221,87 @@
+     }
+     
+     return kVoodooInputProductMacbook8_1;
++}
++
++
++// ---------------------------------------------------------------------------------------------
++// Mouse mode. Fixed-point accumulators (x1024) keep sub-count motion so slow moves are not lost.
++#define VI_LEFT  0x1
++#define VI_RIGHT 0x2
++
++void VoodooInput::handleMouseMode(const VoodooInputEvent& event) {
++    const UInt32 maxX = logicalMaxX ? logicalMaxX : 4096;
++    const UInt32 maxY = logicalMaxY ? logicalMaxY : 4096;
++    // Counts per logical unit for a 400 dpi pointer (15.75 counts/mm), from the physical size
++    // when known (physicalMax is in 1/100 mm), else ~35 units/mm (typical I2C touchpad).
++    SInt64 kPtr = 460; // /1024
++    if (physicalMaxX > 0 && logicalMaxX > 0)
++        kPtr = (SInt64)(15.75 * 1024.0 * (double)physicalMaxX / 100.0 / (double)logicalMaxX);
++    const SInt64 kScroll = kPtr;
++
++    // Collect active fingers.
++    const VoodooInputTransducer* fingers[VOODOO_INPUT_MAX_TRANSDUCERS];
++    int n = 0;
++    bool physicalDown = false;
++    for (int i = 0; i < event.contact_count && i < VOODOO_INPUT_MAX_TRANSDUCERS; i++) {
++        const VoodooInputTransducer& t = event.transducers[i];
++        if (t.isPhysicalButtonDown) physicalDown = true;
++        if (!t.isValid || t.type != FINGER || t.fingerType == kMT2FingerTypePalm) continue;
++        if (t.isTransducerActive) fingers[n++] = &t;
++    }
++
++    // Movement of each active finger since last frame (same id), 0 for new contacts.
++    SInt64 dx[VOODOO_INPUT_MAX_TRANSDUCERS], dy[VOODOO_INPUT_MAX_TRANSDUCERS];
++    MouseSlot next[VOODOO_INPUT_MAX_TRANSDUCERS];
++    for (int i = 0; i < VOODOO_INPUT_MAX_TRANSDUCERS; i++) { dx[i] = dy[i] = 0; next[i].id = 0; next[i].x = next[i].y = 0; next[i].active = false; }
++    for (int i = 0; i < n; i++) {
++        const VoodooInputTransducer* t = fingers[i];
++        for (auto& s : mouseSlots) {
++            if (s.active && s.id == t->secondaryId) {
++                dx[i] = (SInt64)t->currentCoordinates.x - (SInt64)s.x;
++                dy[i] = (SInt64)t->currentCoordinates.y - (SInt64)s.y;
++                break;
++            }
++        }
++        next[i] = { t->secondaryId, t->currentCoordinates.x, t->currentCoordinates.y, true };
++    }
++    for (int i = 0; i < VOODOO_INPUT_MAX_TRANSDUCERS; i++) mouseSlots[i] = next[i];
++
++    // Finger count changed: drop accumulated remainders so the cursor does not jump.
++    if (n != mouseLastFingers) { mouseAccX = mouseAccY = scrollAccX = scrollAccY = 0; }
++
++    // Buttons: a press picks left/right once and keeps it until release.
++    if (physicalDown && !mouseButtons) {
++        bool right = n >= 2;
++        if (!right && n == 1) {
++            const VoodooInputTransducer* t = fingers[0];
++            right = t->currentCoordinates.x > maxX * 6 / 10 && t->currentCoordinates.y > maxY * 3 / 4;
++        }
++        mouseButtons = right ? VI_RIGHT : VI_LEFT;
++    } else if (!physicalDown) {
++        mouseButtons = 0;
++    }
++
++    if (n >= 2 && !mouseButtons) {
++        // Two-finger scroll: mean motion of the two first fingers, natural direction.
++        scrollAccX += (dx[0] + dx[1]) / 2 * kScroll;
++        scrollAccY += (dy[0] + dy[1]) / 2 * kScroll;
++        short sy = (short)(scrollAccY / 1024), sx = (short)(scrollAccX / 1024);
++        scrollAccY -= (SInt64)sy * 1024; scrollAccX -= (SInt64)sx * 1024;
++        if (sx || sy)
++            trackpoint->updateScrollwheel(-sy, -sx, 0, event.timestamp);
++    } else {
++        // Pointer (also while a button is held: drag with the finger that moves the most).
++        int m = 0;
++        for (int i = 1; i < n; i++)
++            if ((dx[i] < 0 ? -dx[i] : dx[i]) + (dy[i] < 0 ? -dy[i] : dy[i]) > (dx[m] < 0 ? -dx[m] : dx[m]) + (dy[m] < 0 ? -dy[m] : dy[m])) m = i;
++        if (n > 0) { mouseAccX += dx[m] * kPtr; mouseAccY += dy[m] * kPtr; }
++        int px = (int)(mouseAccX / 1024), py = (int)(mouseAccY / 1024);
++        mouseAccX -= (SInt64)px * 1024; mouseAccY -= (SInt64)py * 1024;
++        static int lastButtons = 0;
++        if (px || py || mouseButtons != lastButtons)
++            trackpoint->updateRelativePointer(px, py, mouseButtons, event.timestamp);
++        lastButtons = mouseButtons;
++    }
++    mouseLastFingers = n;
+ }
+diff -ruN -x * clean/VoodooInput-1.1.6/VoodooInput/VoodooInput.hpp VoodooInput-1.1.6/VoodooInput/VoodooInput.hpp
+--- VoodooInput/VoodooInput.hpp	2024-09-04 10:18:14
++++ VoodooInput/VoodooInput.hpp	2026-10-17 12:32:48
+@@ -9,6 +9,7 @@
+ #define VOODOO_INPUT_HPP
+ 
+ #include <IOKit/IOService.h>
++#include "VoodooInputMultitouch/VoodooInputEvent.h"
+ 
+ class VoodooInputSimulatorDevice;
+ class VoodooInputActuatorDevice;
+@@ -33,6 +34,16 @@
+     UInt32 logicalMaxY = 0;
+     UInt32 physicalMaxX = 0;
+     UInt32 physicalMaxY = 0;
++
++    // Mouse mode (-vi_mouse): pointer, 2-finger scroll and clicks are computed here and sent
++    // through the relative pointer device instead of the Magic Trackpad 2 simulator.
++    bool mouseMode = false;
++    struct MouseSlot { UInt32 id; UInt32 x; UInt32 y; bool active; };
++    MouseSlot mouseSlots[VOODOO_INPUT_MAX_TRANSDUCERS];
++    int mouseLastFingers = 0;
++    int mouseButtons = 0;
++    SInt64 mouseAccX = 0, mouseAccY = 0, scrollAccX = 0, scrollAccY = 0;
++    void handleMouseMode(const VoodooInputEvent& event);
+ public:
+     bool start(IOService* provider) override;
+     void stop(IOService* provider) override;
